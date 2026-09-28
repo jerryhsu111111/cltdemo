@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Central Limit Theorem Classroom Demo</title>
+  <style>
+    :root{
+      --bg:#f7f7f8;
+      --panel:#ffffff;
+      --text:#111827;
+      --muted:#6b7280;
+      --border:#d1d5db;
+      --bar:#4f46e5;
+      --accent:#111827;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:Arial, Helvetica, sans-serif;
+      background:var(--bg);
+      color:var(--text);
+    }
+    .app{
+      position:relative;
+      width:100vw;
+      min-height:100vh;
+      overflow:hidden;
+      background:var(--panel);
+    }
+    .main{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      min-height:100vh;
+    }
+    .number-panel{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      border-right:1px solid var(--border);
+      padding:32px;
+    }
+    .number-wrap{text-align:center}
+    .label{
+      color:var(--muted);
+      font-size:16px;
+      margin-bottom:10px;
+    }
+    #bigNumber{
+      font-family:Consolas, Menlo, monospace;
+      font-weight:700;
+      font-size:clamp(72px, 15vw, 220px);
+      line-height:1;
+      letter-spacing:-0.04em;
+      font-variant-numeric:tabular-nums;
+    }
+    .hist-panel{
+      position:relative;
+      padding:22px 22px 120px 22px;
+    }
+    .hist-title{
+      color:var(--muted);
+      font-size:15px;
+      margin-bottom:8px;
+    }
+    #histogram{
+      width:100%;
+      height:auto;
+      display:block;
+    }
+    .controls{
+      position:absolute;
+      right:14px;
+      bottom:14px;
+      width:190px;
+      background:rgba(255,255,255,.96);
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:10px;
+      box-shadow:0 3px 12px rgba(0,0,0,.08);
+    }
+    .grid{
+      display:grid;
+      grid-template-columns:1fr 78px;
+      gap:6px 8px;
+      align-items:center;
+      font-size:12px;
+    }
+    input{
+      width:78px;
+      height:30px;
+      border:1px solid var(--border);
+      border-radius:6px;
+      padding:0 7px;
+      font-size:14px;
+      color:var(--text);
+      background:white;
+    }
+    .buttons{
+      display:flex;
+      justify-content:flex-end;
+      gap:6px;
+      margin-top:8px;
+    }
+    button{
+      width:34px;
+      height:34px;
+      border:1px solid var(--border);
+      border-radius:7px;
+      background:white;
+      color:var(--text);
+      cursor:pointer;
+      font-size:16px;
+    }
+    button.primary{
+      background:var(--accent);
+      color:white;
+      border-color:var(--accent);
+    }
+    button.dim{opacity:.45}
+    @media (max-width: 850px){
+      .main{grid-template-columns:1fr}
+      .number-panel{
+        border-right:none;
+        border-bottom:1px solid var(--border);
+        min-height:48vh;
+      }
+      .hist-panel{min-height:52vh}
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="main">
+    <section class="number-panel">
+      <div class="number-wrap">
+        <div class="label">Sample mean</div>
+        <div id="bigNumber">50.00</div>
+      </div>
+    </section>
+
+    <section class="hist-panel" id="histPanel">
+      <div class="hist-title">Distribution of sample means</div>
+      <svg id="histogram" viewBox="0 0 500 330" aria-label="Histogram of generated sample means"></svg>
+    </section>
+  </div>
+
+  <div class="controls">
+    <div class="grid">
+      <label for="meanInput">Mean μ</label>
+      <input id="meanInput" type="number" step="0.1" value="50">
+
+      <label for="sdInput">Std. dev. σ</label>
+      <input id="sdInput" type="number" min="0" step="0.1" value="10">
+
+      <label for="nInput">n</label>
+      <input id="nInput" type="number" min="1" max="10000" step="1" value="1">
+
+      <label for="freqInput">Rate (Hz)</label>
+      <input id="freqInput" type="number" min="0.1" max="30" step="0.1" value="2">
+    </div>
+
+    <div class="buttons">
+      <button id="histToggle" title="Show/hide histogram">▥</button>
+      <button id="resetBtn" title="Clear histogram">↻</button>
+      <button id="pauseBtn" class="primary" title="Pause/start">Ⅱ</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const big = document.getElementById('bigNumber');
+  const meanEl = document.getElementById('meanInput');
+  const sdEl = document.getElementById('sdInput');
+  const nEl = document.getElementById('nInput');
+  const freqEl = document.getElementById('freqInput');
+  const svg = document.getElementById('histogram');
+  const histPanel = document.getElementById('histPanel');
+  const histToggle = document.getElementById('histToggle');
+  const resetBtn = document.getElementById('resetBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+
+  let values = [];
+  let running = true;
+  let timer = null;
+  let histVisible = true;
+
+  function randn(){
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+
+  function settings(){
+    let mu = Number(meanEl.value);
+    let sigma = Number(sdEl.value);
+    let n = Math.round(Number(nEl.value));
+    let hz = Number(freqEl.value);
+
+    if (!Number.isFinite(mu)) mu = 0;
+    if (!Number.isFinite(sigma) || sigma < 0) sigma = 1;
+    if (!Number.isFinite(n) || n < 1) n = 1;
+    if (!Number.isFinite(hz) || hz <= 0) hz = 1;
+
+    n = Math.min(10000, n);
+    hz = Math.max(0.1, Math.min(30, hz));
+
+    meanEl.value = mu;
+    sdEl.value = sigma;
+    nEl.value = n;
+    freqEl.value = hz;
+
+    return {mu, sigma, n, hz};
+  }
+
+  function sampleMean(){
+    const {mu, sigma, n} = settings();
+    let sum = 0;
+    for (let i = 0; i < n; i++){
+      sum += mu + sigma * randn();
+    }
+    return sum / n;
+  }
+
+  function tick(){
+    const x = sampleMean();
+    values.push(x);
+    if (values.length > 3000) values.shift();
+
+    const digits = Math.abs(x) >= 100 ? 1 : 2;
+    big.textContent = x.toFixed(digits);
+    drawHistogram();
+  }
+
+  function drawHistogram(){
+    if (!histVisible) return;
+
+    const {mu, sigma, n} = settings();
+    const se = sigma / Math.sqrt(n);
+    const span = se > 0 ? 4 * se : 1;
+    const xmin = mu - span;
+    const xmax = mu + span;
+    const bins = 24;
+    const counts = Array(bins).fill(0);
+
+    for (const x of values){
+      const idx = Math.floor((x - xmin) / (xmax - xmin) * bins);
+      if (idx >= 0 && idx < bins) counts[idx]++;
+    }
+
+    const maxCount = Math.max(1, ...counts);
+    const W = 500, H = 330, L = 42, R = 14, T = 14, B = 42;
+    const plotW = W - L - R, plotH = H - T - B;
+
+    let out = '';
+    out += `<line x1="${L}" y1="${T+plotH}" x2="${L+plotW}" y2="${T+plotH}" stroke="#cbd5e1" stroke-width="1.5"/>`;
+    out += `<line x1="${L}" y1="${T}" x2="${L}" y2="${T+plotH}" stroke="#cbd5e1" stroke-width="1.5"/>`;
+
+    const bw = plotW / bins;
+    counts.forEach((c, i) => {
+      const h = (c / maxCount) * plotH;
+      const x = L + i * bw + 1;
+      const y = T + plotH - h;
+      out += `<rect x="${x}" y="${y}" width="${Math.max(1, bw-2)}" height="${h}" rx="1" fill="#4f46e5"/>`;
+    });
+
+    out += `<text x="${L}" y="${H-12}" font-size="12" fill="#6b7280">${xmin.toFixed(1)}</text>`;
+    out += `<text x="${L+plotW/2}" y="${H-12}" text-anchor="middle" font-size="12" fill="#6b7280">${mu.toFixed(1)}</text>`;
+    out += `<text x="${L+plotW}" y="${H-12}" text-anchor="end" font-size="12" fill="#6b7280">${xmax.toFixed(1)}</text>`;
+    out += `<text x="${L+plotW-2}" y="${T+14}" text-anchor="end" font-size="12" fill="#6b7280">N = ${values.length}</text>`;
+
+    svg.innerHTML = out;
+  }
+
+  function restart(){
+    if (timer) clearInterval(timer);
+    timer = null;
+    if (!running) return;
+    const {hz} = settings();
+    timer = setInterval(tick, 1000 / hz);
+  }
+
+  freqEl.addEventListener('change', restart);
+
+  [meanEl, sdEl, nEl].forEach(el => {
+    el.addEventListener('change', () => {
+      values = [];
+      tick();
+      restart();
+    });
+  });
+
+  histToggle.addEventListener('click', () => {
+    histVisible = !histVisible;
+    histPanel.style.visibility = histVisible ? 'visible' : 'hidden';
+    histToggle.classList.toggle('dim', !histVisible);
+    if (histVisible) drawHistogram();
+  });
+
+  resetBtn.addEventListener('click', () => {
+    values = [];
+    drawHistogram();
+  });
+
+  pauseBtn.addEventListener('click', () => {
+    running = !running;
+    pauseBtn.textContent = running ? 'Ⅱ' : '▶';
+    restart();
+  });
+
+  tick();
+  restart();
+})();
+</script>
+</body>
+</html>
